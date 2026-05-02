@@ -715,11 +715,11 @@ async function handleRegister(e) {
       sessionExpiresAtMillis: user?.sessionExpiresAtMillis || 0,
     };
 
-    store.setPendingPhoneVerification(registeredUser);
+    store.clearPendingPhoneVerification();
     store.setUser(registeredUser.sessionToken ? registeredUser : null);
     resetPhoneVerificationFlow();
     renderApp();
-    showToast("Kayit tamamlandi. Simdi telefon numarani dogrula.", "success");
+    showToast("Kayit tamamlandi. Telefon dogrulamasi gerekmeden giris yapabilirsin.", "success");
   } catch (err) {
     showAuthError(errEl, err.message || "Kayit basarisiz. Bilgileri kontrol edin.");
     resetTurnstile(turnstileSlot);

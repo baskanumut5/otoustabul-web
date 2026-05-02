@@ -241,14 +241,11 @@ class AppStore {
   }
 
   get phoneVerificationTarget() {
-    if (this.pendingPhoneVerification && !this.isPhoneVerified(this.pendingPhoneVerification)) {
-      return this.pendingPhoneVerification;
-    }
     return null;
   }
 
   get requiresPhoneVerification() {
-    return Boolean(this.phoneVerificationTarget);
+    return false;
   }
 }
 
