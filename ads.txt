@@ -1,0 +1,2 @@
+# Replace the publisher id below with your real Google AdSense publisher id before enabling ads in production.
+google.com, pub-0000000000000000, DIRECT, f08c47fec0942fa0

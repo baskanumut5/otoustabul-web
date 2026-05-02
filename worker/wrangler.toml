@@ -1,0 +1,7 @@
+name = "ustabul-api-proxy"
+main = "src/index.js"
+compatibility_date = "2026-04-28"
+
+[vars]
+# Project URL is public; anon key stays in Cloudflare as a secret.
+SUPABASE_URL = "https://rfoatwcfqcwyfyffahbx.supabase.co"

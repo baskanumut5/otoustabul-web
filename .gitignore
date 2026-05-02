@@ -1,0 +1,14 @@
+# Dependencies
+node_modules/
+
+# Local tooling / logs
+.playwright-mcp/
+*.log
+
+# OS/editor
+.DS_Store
+Thumbs.db
+
+# Env
+.env
+.env.*
