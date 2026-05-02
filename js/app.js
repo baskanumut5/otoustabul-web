@@ -19,7 +19,7 @@ document.addEventListener("DOMContentLoaded", () => {
             Uygulamayi baslatmak icin <strong>js/config.js</strong> dosyasini duzenleyin.
           </p>
           <div class="config-warning-code">
-            <div>SUPABASE_URL: <em>"https://qeycwdfnrrgfcmhpnqke.supabase.co"</em></div>
+            <div>SUPABASE_URL: <em>""</em></div>
             <div class="config-warning-code-row">API_BASE_URL: <strong>"&larr; Proxy URL (onerilen)"</strong></div>
             <div class="config-warning-code-row">TURNSTILE_SITE_KEY: <em>"&larr; Turnstile site key (kayit icin)"</em></div>
           </div>

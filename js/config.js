@@ -3,8 +3,8 @@
 // Bu deÄŸerleri kendi projenize gÃ¶re doldurun
 // ============================================================
 const CONFIG = {
-  // Supabase projenizin URL'i (proxy worker bunu kullanÄ±r)
-  SUPABASE_URL: "https://rfoatwcfqcwyfyffahbx.supabase.co",
+  // Web client proxy kullanir; Supabase proje URL'i Worker env icinde kalir.
+  SUPABASE_URL: "",
 
   // GÃ¼venlik: web client'ta Supabase anon key tutmayÄ±n.
   // Bunun yerine Supabase Ã§aÄŸrÄ±larÄ±nÄ± bir proxy (Ã¶r. Cloudflare Worker) Ã¼zerinden yapÄ±n.

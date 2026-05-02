@@ -3,6 +3,7 @@ node_modules/
 
 # Local tooling / logs
 .playwright-mcp/
+dist/
 *.log
 
 # OS/editor
