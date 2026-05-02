@@ -737,6 +737,8 @@ function showAuthError(el, msg) {
 // ===================== MAIN APP SHELL ========================
 
 function renderApp() {
+  startSessionKeepAlive();
+
   if (store.requiresPhoneVerification) {
     renderPhoneVerificationScreen();
     return;
@@ -778,6 +780,60 @@ function renderApp() {
   });
 
   renderCurrentTab();
+}
+
+const SESSION_KEEP_ALIVE_INTERVAL_MS = 10 * 60 * 1000;
+let sessionKeepAliveTimer = null;
+let sessionRefreshInFlight = null;
+let sessionKeepAliveToken = "";
+
+function mergeSessionUser(existing, refreshed) {
+  return {
+    ...existing,
+    ...refreshed,
+    sessionToken: refreshed?.sessionToken || existing?.sessionToken || "",
+    sessionExpiresAtMillis: refreshed?.sessionExpiresAtMillis || existing?.sessionExpiresAtMillis || 0,
+  };
+}
+
+async function refreshStoredSession() {
+  const existing = store.user;
+  if (!existing?.sessionToken) return null;
+  if (sessionRefreshInFlight) return sessionRefreshInFlight;
+
+  sessionRefreshInFlight = (async () => {
+    try {
+      const refreshed = await api.fetchCurrentUser(existing.sessionToken);
+      const merged = mergeSessionUser(existing, refreshed);
+      if (merged.sessionToken && JSON.stringify(existing) !== JSON.stringify(merged)) {
+        store.setUser(merged);
+      }
+      return merged;
+    } catch (err) {
+      console.warn("Oturum yenilenemedi:", err);
+      return null;
+    } finally {
+      sessionRefreshInFlight = null;
+    }
+  })();
+
+  return sessionRefreshInFlight;
+}
+
+function startSessionKeepAlive() {
+  const token = store.user?.sessionToken || "";
+  if (!token) {
+    if (sessionKeepAliveTimer) window.clearInterval(sessionKeepAliveTimer);
+    sessionKeepAliveTimer = null;
+    sessionKeepAliveToken = "";
+    return;
+  }
+
+  if (sessionKeepAliveTimer && sessionKeepAliveToken === token) return;
+  if (sessionKeepAliveTimer) window.clearInterval(sessionKeepAliveTimer);
+  sessionKeepAliveToken = token;
+  window.setTimeout(refreshStoredSession, 0);
+  sessionKeepAliveTimer = window.setInterval(refreshStoredSession, SESSION_KEEP_ALIVE_INTERVAL_MS);
 }
 
 function renderCurrentTab() {
@@ -1711,7 +1767,8 @@ async function refreshCurrentUserForSettings(container) {
     const merged = {
       ...existing,
       ...refreshed,
-      sessionToken: existing.sessionToken || refreshed.sessionToken,
+      sessionToken: refreshed.sessionToken || existing.sessionToken,
+      sessionExpiresAtMillis: refreshed.sessionExpiresAtMillis || existing.sessionExpiresAtMillis || 0,
     };
     if (JSON.stringify(existing) !== JSON.stringify(merged)) {
       store.setUser(merged);
