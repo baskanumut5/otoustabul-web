@@ -744,12 +744,6 @@ function renderApp() {
     return;
   }
 
-  if (!store.isLoggedIn) {
-    resetPhoneVerificationFlow();
-    renderAuthScreen();
-    return;
-  }
-
   const root = document.getElementById("app-root");
   root.innerHTML = `
     <div id="main-screen">
@@ -845,6 +839,14 @@ function renderCurrentTab() {
     case 2: renderFavoritesScreen(content); break;
     case 3: renderSettingsScreen(content); break;
   }
+}
+
+function requireLoginForAction(message = "Bu islem icin giris yapmalisin.") {
+  if (store.isLoggedIn) return true;
+  showToast(message, "warn");
+  store.setTab(3);
+  renderApp();
+  return false;
 }
 
 // ===================== HOME SCREEN ========================
@@ -1782,6 +1784,46 @@ async function refreshCurrentUserForSettings(container) {
 
 function renderSettingsScreen(container) {
   const user = store.user;
+  if (!store.isLoggedIn) {
+    container.innerHTML = `
+      <div class="screen-settings">
+        <div class="screen-header">
+          <h1 class="screen-title">Ayarlar</h1>
+        </div>
+        <div class="settings-card">
+          <div class="settings-section-title">Hesap</div>
+          <div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:12px">
+            <div>
+              <div class="settings-username">Giris yap veya kayit ol</div>
+              <div class="settings-location">Dukkanlari gezebilirsin; yorum, oy ve hesap islemleri icin giris gerekir.</div>
+            </div>
+            <button class="btn btn-primary btn-full" id="settings-login-btn">Giris Yap / Kayit Ol</button>
+          </div>
+          <div class="settings-divider"></div>
+          <div class="settings-section-title">Gorunum</div>
+          <div class="settings-row settings-row-between">
+            <span class="settings-row-label">${uiIcon("moon", "inline-icon")} Karanlik Mod</span>
+            <label class="toggle-switch">
+              <input type="checkbox" id="dark-mode-toggle" ${store.isDarkMode ? "checked" : ""}>
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          ${CONFIG.PRIVACY_POLICY_URL || CONFIG.TERMS_OF_SERVICE_URL ? `
+          <div class="settings-divider"></div>
+          <div class="settings-links">
+            ${CONFIG.PRIVACY_POLICY_URL ? `<a href="${escHtml(CONFIG.PRIVACY_POLICY_URL)}" target="_blank" rel="noopener noreferrer">Gizlilik Politikasi</a>` : ""}
+            ${CONFIG.TERMS_OF_SERVICE_URL ? `<a href="${escHtml(CONFIG.TERMS_OF_SERVICE_URL)}" target="_blank" rel="noopener noreferrer">Kullanim Kosullari</a>` : ""}
+          </div>` : ""}
+        </div>
+      </div>`;
+
+    document.getElementById("settings-login-btn")?.addEventListener("click", renderAuthScreen);
+    document.getElementById("dark-mode-toggle")?.addEventListener("change", e => {
+      store.setDarkMode(e.target.checked);
+    });
+    return;
+  }
+
   const username = cleanUserValue(user?.username);
   const realName = cleanUserValue(user?.realName);
   const phoneNumber = cleanUserValue(user?.phoneNumber);
@@ -2085,7 +2127,10 @@ async function loadShopComments(shop, modal) {
   }
 
   const addReviewBtn = modal.querySelector("#add-review-btn");
-  addReviewBtn?.addEventListener("click", () => showAddReviewModal(shop));
+  addReviewBtn?.addEventListener("click", () => {
+    if (!requireLoginForAction("Yorum yazmak icin giris yapin.")) return;
+    showAddReviewModal(shop);
+  });
 }
 
 function attachCommentListeners(container, shop) {
