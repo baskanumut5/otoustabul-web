@@ -246,6 +246,20 @@ class UstaBulAPI {
     return data.details || null;
   }
 
+  async fetchSharedShop(placeId) {
+    const id = String(placeId || "").trim();
+    if (!id) return null;
+
+    const details = await this.fetchPlaceDetails(id);
+    if (!details) return null;
+
+    return this._parseShop({
+      ...details,
+      id: details.id || details.place_id || id,
+      placeId: details.placeId || details.place_id || id,
+    });
+  }
+
   async fetchHomeRankings({ city, district, category, serviceBrand = "", serviceModel = "", algorithm = "" }) {
     const data = await this._callFunction("app-shop-catalog", {
       action: "get_home_rankings",

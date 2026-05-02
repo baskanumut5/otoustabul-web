@@ -354,15 +354,45 @@ function openPhone(phone) {
   window.open(`tel:${phone.replace(/\s/g, "")}`, "_self");
 }
 
+function sharedShopId(shop) {
+  return String(shop?.placeId || shop?.place_id || shop?.id || "").trim();
+}
+
+function shopShareUrl(shop) {
+  const id = sharedShopId(shop);
+  if (!id) return window.location.href;
+
+  const url = new URL(window.location.href);
+  url.search = "";
+  url.hash = "";
+  url.searchParams.set("shop", id);
+  return url.toString();
+}
+
+function readSharedShopIdFromUrl() {
+  try {
+    const url = new URL(window.location.href);
+    const queryValue = url.searchParams.get("shop");
+    if (queryValue) return queryValue.trim();
+
+    const hashMatch = url.hash.match(/[#&?]shop=([^&]+)/);
+    return hashMatch ? decodeURIComponent(hashMatch[1]).trim() : "";
+  } catch {
+    return "";
+  }
+}
+
 function shareShop(shop) {
   if (!shop?.name) {
     showToast("Paylaşılacak usta bilgisi bulunamadı.", "warn");
     return;
   }
   const text = `${shop.name} - ${shop.address}`;
-  const url = window.location.href;
+  const url = shopShareUrl(shop);
   if (navigator.share) {
-    navigator.share({ title: shop.name, text, url });
+    navigator.share({ title: shop.name, text, url }).catch(err => {
+      if (err?.name !== "AbortError") showToast("Paylaşım başlatılamadı.", "error");
+    });
   } else {
     navigator.clipboard?.writeText(`${text}\n${url}`);
     showToast("Bağlantı kopyalandı!", "success");

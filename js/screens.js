@@ -775,6 +775,46 @@ function renderApp() {
   });
 
   renderCurrentTab();
+  window.setTimeout(openSharedShopFromUrl, 0);
+}
+
+let lastOpenedSharedShopUrl = "";
+
+function findKnownShop(shopId) {
+  const id = String(shopId || "").trim();
+  if (!id) return null;
+  const lists = [store.shops, homeState.shops, shopsState.shops];
+  for (const list of lists) {
+    const found = (list || []).find(shop =>
+      String(shop?.id || "").trim() === id ||
+      String(shop?.placeId || "").trim() === id
+    );
+    if (found) return found;
+  }
+  return null;
+}
+
+async function openSharedShopFromUrl() {
+  const sharedShopId = readSharedShopIdFromUrl();
+  if (!sharedShopId || lastOpenedSharedShopUrl === window.location.href) return;
+  lastOpenedSharedShopUrl = window.location.href;
+
+  const knownShop = findKnownShop(sharedShopId);
+  if (knownShop) {
+    showShopDetail(knownShop.id || knownShop.placeId);
+    return;
+  }
+
+  try {
+    showToast("Dükkan açılıyor...", "info");
+    const shop = await api.fetchSharedShop(sharedShopId);
+    if (!shop?.id) throw new Error("Paylaşılan dükkan bulunamadı.");
+    store.mergeShops([shop]);
+    showShopDetail(shop.id);
+  } catch (err) {
+    console.warn("Paylaşılan dükkan açılamadı:", err);
+    showToast("Paylaşılan dükkan açılamadı.", "error");
+  }
 }
 
 const SESSION_KEEP_ALIVE_INTERVAL_MS = 10 * 60 * 1000;
@@ -2202,9 +2242,7 @@ function renderShopDetailRatingHtml(shop) {
 }
 
 async function showShopDetail(shopId) {
-  const shop = store.shops.find(s => s.id === shopId) ||
-               homeState.shops.find(s => s.id === shopId) ||
-               shopsState.shops.find(s => s.id === shopId);
+  const shop = findKnownShop(shopId);
   if (!shop) { showToast("Usta bulunamadı.", "error"); return; }
 
   const shopDetailOpenCount = incrementShopDetailAdOpenCount();
@@ -2224,7 +2262,12 @@ function renderShopDetailBody(shop, comments, votes) {
   const isLoggedIn = store.isLoggedIn;
   const phoneArg = escHtml(JSON.stringify(shop.phone || ""));
   const nameArg = escHtml(JSON.stringify(shop.name || ""));
-  const shareArg = escHtml(JSON.stringify({ name: shop.name || "", address: shop.address || "" }));
+  const shareArg = escHtml(JSON.stringify({
+    id: shop.id || "",
+    placeId: shop.placeId || "",
+    name: shop.name || "",
+    address: shop.address || "",
+  }));
 
   return `
     <div class="shop-detail">
