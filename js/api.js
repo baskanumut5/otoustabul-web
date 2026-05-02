@@ -459,7 +459,7 @@ class UstaBulAPI {
 
   async deleteCommentAsModerator({ commentId, sessionToken }) {
     await this._callFunction("app-secure-actions", {
-      action: "delete_comment",
+      action: "hide_comment",
       sessionToken,
       commentId,
       moderationNote: "web_moderation",
