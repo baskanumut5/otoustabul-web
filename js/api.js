@@ -457,6 +457,15 @@ class UstaBulAPI {
     }, sessionToken);
   }
 
+  async deleteCommentAsModerator({ commentId, sessionToken }) {
+    await this._callFunction("app-secure-actions", {
+      action: "delete_comment",
+      sessionToken,
+      commentId,
+      moderationNote: "web_moderation",
+    }, sessionToken);
+  }
+
   async moderateAccountDeletion({ requestId, decision, sessionToken }) {
     await this._callFunction("app-secure-actions", {
       action: "moderate_account_deletion",

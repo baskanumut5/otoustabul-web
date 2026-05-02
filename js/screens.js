@@ -744,7 +744,7 @@ function renderApp() {
     return;
   }
 
-  if (![0, 1, 2, 3].includes(store.currentTab)) {
+  if (![0, 1, 2].includes(store.currentTab)) {
     store.currentTab = 0;
   }
 
@@ -1184,65 +1184,150 @@ function clearHomeSearchForFilters() {
   if (!homeState.searchQuery) return;
   homeState.searchQuery = "";
   resetHomeSearchPaging();
-  const input = document.getElementById("home-search");
-  if (input) input.value = "";
+  syncHomeSearchInputs();
 }
 
 async function renderHomeScreen(container) {
   container.innerHTML = `
     <div class="screen-home">
-      <div class="home-logo-row">
-        <div class="home-brand-stack">
-          <div class="home-brand">
-            <div class="home-brand-logo">${brandLogoHtml("lg")}</div>
-            <span class="brand-beta">(Beta)</span>
-          </div>
-          <button class="location-hero home-location-hero" id="home-location-btn" aria-label="Konumu degistir">
-            ${uiIcon("pin", "inline-icon")} <span id="location-label">${escHtml(store.selectedCity)} / ${escHtml(store.selectedDistrict)}</span>
-          </button>
-        </div>
-        <div class="screen-divider home-header-divider" aria-hidden="true"></div>
-      </div>
-      <div class="home-search-wrap">
-        <div class="search-bar-wrap">
+      <div class="home-compact-bar" id="home-compact-bar" aria-hidden="true">
+        <button class="home-compact-logo" id="home-compact-logo" type="button" aria-label="Ana sayfa üstüne dön">
+          ${brandLogoHtml("sm")}
+        </button>
+        <div class="home-compact-search search-bar-wrap">
           ${uiIcon("search")}
-          <input class="search-input" id="home-search" type="search" placeholder="Dükkan Ara" value="${escHtml(homeState.searchQuery)}">
-          <button class="btn btn-primary btn-search" id="home-search-submit">Ara</button>
+          <input class="search-input home-search-input" id="home-compact-search" type="search" placeholder="Dükkan Ara" value="${escHtml(homeState.searchQuery)}">
+          <button class="btn btn-primary btn-search" id="home-compact-search-submit">Ara</button>
         </div>
       </div>
-      <div id="home-filter-card-wrap">${homeFilterCardHtml()}</div>
+      <section class="home-hero">
+        <div class="home-logo-row">
+          <div class="home-brand-stack">
+            <div class="home-brand">
+              <div class="home-brand-logo">${brandLogoHtml("lg")}</div>
+              <span class="brand-beta">(Beta)</span>
+            </div>
+            <button class="location-hero home-location-hero" id="home-location-btn" aria-label="Konumu degistir">
+              ${uiIcon("pin", "inline-icon")} <span id="location-label">${escHtml(store.selectedCity)} / ${escHtml(store.selectedDistrict)}</span>
+            </button>
+          </div>
+          <div class="screen-divider home-header-divider" aria-hidden="true"></div>
+        </div>
+        <div class="home-search-wrap">
+          <div class="search-bar-wrap">
+            ${uiIcon("search")}
+            <input class="search-input home-search-input" id="home-search" type="search" placeholder="Dükkan Ara" value="${escHtml(homeState.searchQuery)}">
+            <button class="btn btn-primary btn-search" id="home-search-submit">Ara</button>
+          </div>
+        </div>
+        <div id="home-filter-card-wrap">${homeFilterCardHtml()}</div>
+        <button class="home-scroll-results-btn" id="home-scroll-results" type="button" aria-label="Dükkanlara git">
+          ${uiIcon("chevronDown")}
+        </button>
+      </section>
       <div id="home-content">${loadingHtml("Ustalar yükleniyor...")}</div>
     </div>`;
 
   document.getElementById("home-location-btn")?.addEventListener("click", showLocationPicker);
+  document.getElementById("home-scroll-results")?.addEventListener("click", scrollHomeToResults);
+  document.getElementById("home-compact-logo")?.addEventListener("click", scrollHomeToTop);
+  attachHomeCompactHeader();
   attachHomeSearchListeners();
   attachHomeFilterCardListeners();
 
   await loadHomeShops();
 }
 
-function attachHomeSearchListeners() {
-  const input = document.getElementById("home-search");
-  const submit = document.getElementById("home-search-submit");
-  const syncAndLoad = () => {
-    const nextQuery = (input?.value || "").trim();
-    if (homeState.searchQuery === nextQuery) {
-      loadHomeShops();
-      return;
-    }
-    homeState.searchQuery = nextQuery;
-    resetHomeSearchPaging();
-    if (nextQuery) resetHomeFiltersForSearch();
-    loadHomeShops();
+function scrollHomeToTop() {
+  animateHomeScrollTo(0, 520);
+}
+
+function scrollHomeToResults() {
+  const scroller = document.getElementById("screen-content");
+  const target = document.getElementById("home-content");
+  if (!scroller || !target) return;
+
+  const targetTop = target.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
+  animateHomeScrollTo(targetTop, 620);
+}
+
+function animateHomeScrollTo(targetTop, duration = 620) {
+  const scroller = document.getElementById("screen-content");
+  if (!scroller) return;
+
+  const start = scroller.scrollTop;
+  const distance = targetTop - start;
+  const startedAt = performance.now();
+
+  function easeOutCubic(t) {
+    return 1 - Math.pow(1 - t, 3);
+  }
+
+  function step(now) {
+    const progress = Math.min(1, (now - startedAt) / duration);
+    scroller.scrollTop = start + distance * easeOutCubic(progress);
+    if (progress < 1) requestAnimationFrame(step);
+  }
+
+  requestAnimationFrame(step);
+}
+
+function attachHomeCompactHeader() {
+  const scroller = document.getElementById("screen-content");
+  const screen = document.querySelector(".screen-home");
+  const target = document.getElementById("home-content");
+  if (!scroller || !screen || !target) return;
+
+  if (scroller._homeCompactHeaderHandler) {
+    scroller.removeEventListener("scroll", scroller._homeCompactHeaderHandler);
+  }
+
+  const update = () => {
+    const scrollerTop = scroller.getBoundingClientRect().top;
+    const targetTop = target.getBoundingClientRect().top;
+    const shouldShow = targetTop - scrollerTop < 92;
+    screen.classList.toggle("home-compact-visible", shouldShow);
+    document.getElementById("home-compact-bar")?.setAttribute("aria-hidden", shouldShow ? "false" : "true");
   };
 
-  input?.addEventListener("input", debounce(syncAndLoad, 400));
-  input?.addEventListener("keydown", e => {
-    if (e.key !== "Enter") return;
-    e.preventDefault();
-    syncAndLoad();
+  scroller._homeCompactHeaderHandler = update;
+  scroller.addEventListener("scroll", update, { passive: true });
+  update();
+}
+
+function syncHomeSearchInputs() {
+  document.querySelectorAll(".home-search-input").forEach(input => {
+    input.value = homeState.searchQuery;
   });
-  submit?.addEventListener("click", syncAndLoad);
+}
+
+function attachHomeSearchListeners() {
+  const bindSearch = (input, submit) => {
+    if (!input) return;
+    const syncAndLoad = () => {
+      const nextQuery = (input?.value || "").trim();
+      if (homeState.searchQuery === nextQuery) {
+        loadHomeShops();
+        return;
+      }
+      homeState.searchQuery = nextQuery;
+      resetHomeSearchPaging();
+      syncHomeSearchInputs();
+      if (nextQuery) resetHomeFiltersForSearch();
+      loadHomeShops();
+    };
+
+    input.addEventListener("input", debounce(syncAndLoad, 400));
+    input.addEventListener("keydown", e => {
+      if (e.key !== "Enter") return;
+      e.preventDefault();
+      syncAndLoad();
+    });
+    submit?.addEventListener("click", syncAndLoad);
+  };
+
+  bindSearch(document.getElementById("home-search"), document.getElementById("home-search-submit"));
+  bindSearch(document.getElementById("home-compact-search"), document.getElementById("home-compact-search-submit"));
 }
 
 async function loadHomeShops() {
@@ -2735,6 +2820,9 @@ async function showModerationModal() {
           <p><strong>Dükkan:</strong> ${escHtml(commentShopLabel(comment))}</p>
           ${rating != null ? `<p><strong>Puan:</strong> ${escHtml(formatRating(rating))}/5</p>` : ""}
           <p class="mod-comment-text">${escHtml(comment.text || "")}</p>
+          <div class="mod-actions">
+            <button class="btn btn-sm btn-danger" data-mod-comment-delete="${escHtml(comment.id)}">Yorumu Sil</button>
+          </div>
         </div>`;
       }).join("");
     };
@@ -2847,6 +2935,22 @@ async function showModerationModal() {
         btn.addEventListener("click", () => runModerationAction(btn,
           () => api.moderateCommentReport({ reportId: btn.dataset.modReport, decision: btn.dataset.decision, sessionToken: store.user.sessionToken }),
           () => { reports = reports.filter(r => String(r.reportId || r.id) !== btn.dataset.modReport); }
+        ));
+      });
+
+      body.querySelectorAll("[data-mod-comment-delete]").forEach(btn => {
+        btn.addEventListener("click", () => runModerationAction(btn,
+          () => api.deleteCommentAsModerator({ commentId: btn.dataset.modCommentDelete, sessionToken: store.user.sessionToken }),
+          () => {
+            const deletedId = btn.dataset.modCommentDelete;
+            for (let i = latestComments.length - 1; i >= 0; i -= 1) {
+              if (String(latestComments[i]?.id) === deletedId) latestComments.splice(i, 1);
+            }
+            reports = reports.filter(r => {
+              const reportCommentId = r.commentId || r.comment_id || r.targetCommentId || r.target_comment_id;
+              return String(reportCommentId || "") !== deletedId;
+            });
+          }
         ));
       });
 
