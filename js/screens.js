@@ -744,6 +744,10 @@ function renderApp() {
     return;
   }
 
+  if (![0, 1, 2, 3].includes(store.currentTab)) {
+    store.currentTab = 0;
+  }
+
   const root = document.getElementById("app-root");
   root.innerHTML = `
     <div id="main-screen">
@@ -835,16 +839,19 @@ function renderCurrentTab() {
   if (!content) return;
   switch (store.currentTab) {
     case 0: renderHomeScreen(content); break;
-    case 1: renderShopsScreen(content); break;
-    case 2: renderFavoritesScreen(content); break;
-    case 3: renderSettingsScreen(content); break;
+    case 1: renderFavoritesScreen(content); break;
+    case 2: renderSettingsScreen(content); break;
+    default:
+      store.currentTab = 0;
+      renderHomeScreen(content);
+      break;
   }
 }
 
 function requireLoginForAction(message = "Bu islem icin giris yapmalisin.") {
   if (store.isLoggedIn) return true;
   showToast(message, "warn");
-  store.setTab(3);
+  store.setTab(2);
   renderApp();
   return false;
 }
@@ -871,6 +878,11 @@ let homeState = {
   selectedBrand: "",
   selectedModel: "",
   selectedCollection: HOME_DEFAULT_COLLECTION,
+  searchQuery: "",
+  searchPage: 0,
+  searchNextOffset: 0,
+  searchTotal: 0,
+  searchHasMore: false,
   _reqToken: 0,
   _rankings: null,
   _rankingsKey: null,
@@ -1134,6 +1146,7 @@ function homeResultsTitle() {
 }
 
 function homeEmptyStateSubtitle() {
+  if (isHomeSearchActive()) return "FarklÄ± bir dÃ¼kkan adÄ± veya arama kelimesi deneyin.";
   switch (homeState.selectedCollection) {
     case "RecentlyLiked":
     case "WorstRated":
@@ -1142,6 +1155,39 @@ function homeEmptyStateSubtitle() {
     default:
       return "Farkl\u0131 bir kategori, marka veya konum deneyin.";
   }
+}
+
+function isHomeSearchActive() {
+  return homeState.searchQuery.trim().length > 0;
+}
+
+function resetHomeSearchPaging() {
+  homeState.searchPage = 0;
+  homeState.searchNextOffset = 0;
+  homeState.searchTotal = 0;
+  homeState.searchHasMore = false;
+}
+
+function resetHomeFiltersForSearch() {
+  const alreadyDefault =
+    homeState.selectedCategory === HOME_DEFAULT_CATEGORY &&
+    homeState.selectedBrand === "" &&
+    homeState.selectedModel === "" &&
+    homeState.selectedCollection === HOME_DEFAULT_COLLECTION;
+  if (alreadyDefault) return;
+  homeState.selectedCategory = HOME_DEFAULT_CATEGORY;
+  homeState.selectedBrand = "";
+  homeState.selectedModel = "";
+  homeState.selectedCollection = HOME_DEFAULT_COLLECTION;
+  refreshHomeFilterCard();
+}
+
+function clearHomeSearchForFilters() {
+  if (!homeState.searchQuery) return;
+  homeState.searchQuery = "";
+  resetHomeSearchPaging();
+  const input = document.getElementById("home-search");
+  if (input) input.value = "";
 }
 
 async function renderHomeScreen(container) {
@@ -1159,17 +1205,54 @@ async function renderHomeScreen(container) {
         </div>
         <div class="screen-divider home-header-divider" aria-hidden="true"></div>
       </div>
+      <div class="home-search-wrap">
+        <div class="search-bar-wrap">
+          ${uiIcon("search")}
+          <input class="search-input" id="home-search" type="search" placeholder="Dükkan Ara" value="${escHtml(homeState.searchQuery)}">
+          <button class="btn btn-primary btn-search" id="home-search-submit">Ara</button>
+        </div>
+      </div>
       <div id="home-filter-card-wrap">${homeFilterCardHtml()}</div>
       <div id="home-content">${loadingHtml("Ustalar yükleniyor...")}</div>
     </div>`;
 
   document.getElementById("home-location-btn")?.addEventListener("click", showLocationPicker);
+  attachHomeSearchListeners();
   attachHomeFilterCardListeners();
 
   await loadHomeShops();
 }
 
+function attachHomeSearchListeners() {
+  const input = document.getElementById("home-search");
+  const submit = document.getElementById("home-search-submit");
+  const syncAndLoad = () => {
+    const nextQuery = (input?.value || "").trim();
+    if (homeState.searchQuery === nextQuery) {
+      loadHomeShops();
+      return;
+    }
+    homeState.searchQuery = nextQuery;
+    resetHomeSearchPaging();
+    if (nextQuery) resetHomeFiltersForSearch();
+    loadHomeShops();
+  };
+
+  input?.addEventListener("input", debounce(syncAndLoad, 400));
+  input?.addEventListener("keydown", e => {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    syncAndLoad();
+  });
+  submit?.addEventListener("click", syncAndLoad);
+}
+
 async function loadHomeShops() {
+  if (isHomeSearchActive()) {
+    await loadHomeSearchResults();
+    return;
+  }
+
   const key = rankingsCacheKey();
   if (homeState._rankings && homeState._rankingsKey === key) {
     homeState.loading = false;
@@ -2529,105 +2612,221 @@ async function showModerationModal() {
     loadingHtml("Kuyruk yükleniyor..."), "");
 
   try {
-    const data = await api.getModerationQueue(store.user.sessionToken);
-    const proofReviews = data.proofReviews || [];
-    const reports = data.commentReports || [];
-    const deletions = data.accountDeletionRequests || [];
-    const shopRequests = data.shopRequests || [];
+    const [data, commentsResult] = await Promise.all([
+      api.getModerationQueue(store.user.sessionToken),
+      api.fetchAllComments(store.user.sessionToken)
+        .then(comments => ({ ok: true, comments }))
+        .catch(err => ({ ok: false, error: err })),
+    ]);
 
-    modal.querySelector(".modal-body").innerHTML = `
-      <div class="mod-section">
-        <h3>Belge İnceleme (${proofReviews.length})</h3>
-        ${!proofReviews.length ? `<p class="empty-msg">Bekleyen belge incelemesi yok.</p>` :
-          proofReviews.map(p => `<div class="mod-item">
-            <p><strong>Belge:</strong> ${escHtml(p.documentType === "official_invoice" ? "e-Arsiv / fatura" : "Fis")}</p>
-            <p><strong>Yorum:</strong> ${escHtml(p.commentBody || "")}</p>
-            <p><strong>Yazar:</strong> @${escHtml(p.authorName || "")}</p>
-            <p><strong>Dosya:</strong> ${escHtml(p.proofFileName || p.proofMimeType || "-")}</p>
-            ${p.documentValidationStatus ? `<p><strong>Durum:</strong> ${escHtml(p.documentValidationStatus)}</p>` : ""}
-            ${p.documentValidationDetail ? `<p><strong>Detay:</strong> ${escHtml(p.documentValidationDetail)}</p>` : ""}
+    const timeValue = item => {
+      const raw = item?.timestamp ?? item?.createdAt ?? item?.created_at ?? item?.submittedAt ?? item?.submitted_at ?? item?.requestedAt ?? item?.requested_at ?? item?.reportedAt ?? item?.reported_at;
+      if (typeof raw === "number") return raw > 10000000000 ? raw : raw * 1000;
+      if (!raw) return 0;
+      const parsed = new Date(raw).getTime();
+      return Number.isFinite(parsed) ? parsed : 0;
+    };
+    const newestFirst = (a, b) => timeValue(b) - timeValue(a);
+
+    let proofReviews = [...(data.proofReviews || [])].sort(newestFirst);
+    let reports = [...(data.commentReports || [])].sort(newestFirst);
+    let deletions = [...(data.accountDeletionRequests || [])].sort(newestFirst);
+    let shopRequests = [...(data.shopRequests || [])].sort(newestFirst);
+    const latestComments = commentsResult.ok
+      ? [...commentsResult.comments].sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
+      : [];
+    const commentsError = commentsResult.ok ? "" : (commentsResult.error?.message || "Yorumlar yüklenemedi.");
+
+    const body = modal.querySelector(".modal-body");
+    let activeKey = "comments";
+
+    const tabs = () => [
+      { key: "comments", label: "Son Yorumlar", count: latestComments.length, icon: "edit" },
+      { key: "proof", label: "Belge İnceleme", count: proofReviews.length, icon: "shield" },
+      { key: "reports", label: "Yorum Şikayetleri", count: reports.length, icon: "flag" },
+      { key: "shops", label: "Dükkan Talepleri", count: shopRequests.length, icon: "store" },
+      { key: "deletions", label: "Hesap Silme", count: deletions.length, icon: "trash" },
+    ];
+
+    const renderTabs = () => `<div class="mod-tabs">
+      ${tabs().map(tab => `<button class="mod-tab-btn${tab.key === activeKey ? " mod-tab-active" : ""}" type="button" data-mod-tab="${escHtml(tab.key)}">
+        <span>${uiIcon(tab.icon, "inline-icon")} ${escHtml(tab.label)}</span>
+        <strong>${escHtml(tab.count)}</strong>
+      </button>`).join("")}
+    </div>`;
+
+    const timeMeta = timestamp => {
+      if (!timestamp) return "";
+      const exact = new Date(timestamp).toLocaleString("tr-TR", { dateStyle: "short", timeStyle: "short" });
+      return `<span>${escHtml(timeAgo(timestamp))} - ${escHtml(exact)}</span>`;
+    };
+
+    const commentShopLabel = comment => {
+      const shopId = String(comment.shopId || "").trim();
+      const knownShop = shopId
+        ? store.shops.find(s => String(s.id || "") === shopId || String(s.placeId || "") === shopId)
+        : null;
+      return comment.shopName || knownShop?.name || shopId || "-";
+    };
+
+    const renderComments = () => {
+      if (commentsError) return `<div class="error-state">${uiIcon("warning", "inline-icon")} ${escHtml(commentsError)}</div>`;
+      if (!latestComments.length) return `<p class="empty-msg">Henüz yorum yok.</p>`;
+      return latestComments.map(comment => {
+        const rating = commentRatingValue(comment);
+        return `<div class="mod-item mod-comment-item">
+          <div class="mod-item-head">
+            <strong>@${escHtml(comment.username || "Anonim")}</strong>
+            <span>${timeMeta(comment.timestamp)}</span>
+          </div>
+          <p><strong>Dükkan:</strong> ${escHtml(commentShopLabel(comment))}</p>
+          ${rating != null ? `<p><strong>Puan:</strong> ${escHtml(formatRating(rating))}/5</p>` : ""}
+          <p class="mod-comment-text">${escHtml(comment.text || "")}</p>
+        </div>`;
+      }).join("");
+    };
+
+    const renderProofReviews = () => !proofReviews.length ? `<p class="empty-msg">Bekleyen belge incelemesi yok.</p>` :
+      proofReviews.map(p => {
+        const id = p.reviewId || p.commentId || p.id;
+        return `<div class="mod-item">
+          <p><strong>Belge:</strong> ${escHtml(p.documentType === "official_invoice" ? "e-Arşiv / fatura" : "Fiş")}</p>
+          <p><strong>Yorum:</strong> ${escHtml(p.commentBody || "")}</p>
+          <p><strong>Yazar:</strong> @${escHtml(p.authorName || "")}</p>
+          <p><strong>Dosya:</strong> ${escHtml(p.proofFileName || p.proofMimeType || "-")}</p>
+          ${timeMeta(timeValue(p)) ? `<p><strong>Tarih:</strong> ${timeMeta(timeValue(p))}</p>` : ""}
+          ${p.documentValidationStatus ? `<p><strong>Durum:</strong> ${escHtml(p.documentValidationStatus)}</p>` : ""}
+          ${p.documentValidationDetail ? `<p><strong>Detay:</strong> ${escHtml(p.documentValidationDetail)}</p>` : ""}
           ${p.proofUrl ? `<p><a href="${escHtml(p.proofUrl)}" target="_blank" rel="noopener noreferrer">Belgeyi aç</a></p>` : ""}
-            <div class="mod-actions">
-              <button class="btn btn-sm btn-secondary" data-mod-proof="${escHtml(p.reviewId || p.commentId || p.id)}" data-decision="approve">Onayla</button>
-              <button class="btn btn-sm btn-danger" data-mod-proof="${escHtml(p.reviewId || p.commentId || p.id)}" data-decision="reject">Reddet</button>
-            </div>
-          </div>`).join("")}
-      </div>
-      <div class="mod-section">
-        <h3>Yorum Şikayetleri (${reports.length})</h3>
-        ${!reports.length ? `<p class="empty-msg">Bekleyen şikayet yok.</p>` :
-          reports.map(r => `<div class="mod-item">
-            <p><strong>Yorum:</strong> ${escHtml(r.commentBody || r.commentText || r.comment_text || "")}</p>
-            <p><strong>Neden:</strong> ${escHtml(r.reasonText || r.reasonCode || r.reason || "")}</p>
-            <p><strong>Yazar:</strong> @${escHtml(r.authorName || "")}</p>
-            <p><strong>Bildirim:</strong> ${escHtml(r.reportCount || 1)} adet</p>
-            <div class="mod-actions">
-              <button class="btn btn-sm btn-danger" data-mod-report="${escHtml(r.reportId || r.id)}" data-decision="hide">Yorumu Gizle</button>
-              <button class="btn btn-sm btn-secondary" data-mod-report="${escHtml(r.reportId || r.id)}" data-decision="dismiss">Bildirimi Reddet</button>
-            </div>
-          </div>`).join("")}
-      </div>
-      <div class="mod-section">
-        <h3>Dükkan Talepleri (${shopRequests.length})</h3>
-        ${!shopRequests.length ? `<p class="empty-msg">Bekleyen dükkan talebi yok.</p>` :
-          shopRequests.map(s => `<div class="mod-item">
-            <p><strong>Dükkan:</strong> ${escHtml(s.name || "")}</p>
-            <p><strong>Kategori:</strong> ${escHtml(categoryLabel(s.categoryName || ""))}</p>
-            <p><strong>Adres:</strong> ${escHtml(s.address || "")}</p>
-            <p><strong>Telefon:</strong> ${escHtml(s.phone || "")}</p>
-            <p><strong>Konum:</strong> ${escHtml([s.city, s.district].filter(Boolean).join(" / "))}</p>
-            <p><strong>Talep Eden:</strong> @${escHtml(s.requesterUsername || "")}</p>
-            ${s.photoUrl || s.photoUri ? `<p><a href="${escHtml(s.photoUrl || s.photoUri)}" target="_blank" rel="noopener noreferrer">Fotoğrafı aç</a></p>` : ""}
-            <div class="mod-actions">
-              <button class="btn btn-sm btn-secondary" data-mod-shop="${escHtml(s.requestId || s.id)}" data-decision="approve">Onayla</button>
-              <button class="btn btn-sm btn-danger" data-mod-shop="${escHtml(s.requestId || s.id)}" data-decision="reject">Reddet</button>
-            </div>
-          </div>`).join("")}
-      </div>
-      <div class="mod-section">
-        <h3>Hesap Silme Talepleri (${deletions.length})</h3>
-        ${!deletions.length ? `<p class="empty-msg">Bekleyen talep yok.</p>` :
-          deletions.map(d => `<div class="mod-item">
-            <p><strong>Kullanıcı:</strong> @${escHtml(d.username || "")}</p>
-            <p><strong>Neden:</strong> ${escHtml(d.reason || "")}</p>
-            <div class="mod-actions">
-              <button class="btn btn-sm btn-secondary" data-mod-deletion="${escHtml(d.requestId || d.id)}" data-decision="approve">Onayla</button>
-              <button class="btn btn-sm btn-danger" data-mod-deletion="${escHtml(d.requestId || d.id)}" data-decision="reject">Reddet</button>
-            </div>
-          </div>`).join("")}
-      </div>`;
+          <div class="mod-actions">
+            <button class="btn btn-sm btn-secondary" data-mod-proof="${escHtml(id)}" data-decision="approve">Onayla</button>
+            <button class="btn btn-sm btn-danger" data-mod-proof="${escHtml(id)}" data-decision="reject">Reddet</button>
+          </div>
+        </div>`;
+      }).join("");
 
-    modal.querySelectorAll("[data-mod-proof]").forEach(btn => {
-      btn.addEventListener("click", async () => {
-        await api.moderateProofReview({ reviewId: btn.dataset.modProof, decision: btn.dataset.decision, sessionToken: store.user.sessionToken });
-        showToast("Islem tamamlandi.", "success");
-        btn.closest(".mod-item").remove();
-      });
-    });
+    const renderReports = () => !reports.length ? `<p class="empty-msg">Bekleyen şikayet yok.</p>` :
+      reports.map(r => {
+        const id = r.reportId || r.id;
+        return `<div class="mod-item">
+          <p><strong>Yorum:</strong> ${escHtml(r.commentBody || r.commentText || r.comment_text || "")}</p>
+          <p><strong>Neden:</strong> ${escHtml(r.reasonText || r.reasonCode || r.reason || "")}</p>
+          <p><strong>Yazar:</strong> @${escHtml(r.authorName || "")}</p>
+          <p><strong>Bildirim:</strong> ${escHtml(r.reportCount || 1)} adet</p>
+          ${timeMeta(timeValue(r)) ? `<p><strong>Tarih:</strong> ${timeMeta(timeValue(r))}</p>` : ""}
+          <div class="mod-actions">
+            <button class="btn btn-sm btn-danger" data-mod-report="${escHtml(id)}" data-decision="hide">Yorumu Gizle</button>
+            <button class="btn btn-sm btn-secondary" data-mod-report="${escHtml(id)}" data-decision="dismiss">Bildirimi Reddet</button>
+          </div>
+        </div>`;
+      }).join("");
 
-    modal.querySelectorAll("[data-mod-report]").forEach(btn => {
-      btn.addEventListener("click", async () => {
-        await api.moderateCommentReport({ reportId: btn.dataset.modReport, decision: btn.dataset.decision, sessionToken: store.user.sessionToken });
+    const renderShopRequests = () => !shopRequests.length ? `<p class="empty-msg">Bekleyen dükkan talebi yok.</p>` :
+      shopRequests.map(s => {
+        const id = s.requestId || s.id;
+        return `<div class="mod-item">
+          <p><strong>Dükkan:</strong> ${escHtml(s.name || "")}</p>
+          <p><strong>Kategori:</strong> ${escHtml(categoryLabel(s.categoryName || ""))}</p>
+          <p><strong>Adres:</strong> ${escHtml(s.address || "")}</p>
+          <p><strong>Telefon:</strong> ${escHtml(s.phone || "")}</p>
+          <p><strong>Konum:</strong> ${escHtml([s.city, s.district].filter(Boolean).join(" / "))}</p>
+          <p><strong>Talep Eden:</strong> @${escHtml(s.requesterUsername || "")}</p>
+          ${timeMeta(timeValue(s)) ? `<p><strong>Tarih:</strong> ${timeMeta(timeValue(s))}</p>` : ""}
+          ${s.photoUrl || s.photoUri ? `<p><a href="${escHtml(s.photoUrl || s.photoUri)}" target="_blank" rel="noopener noreferrer">Fotoğrafı aç</a></p>` : ""}
+          <div class="mod-actions">
+            <button class="btn btn-sm btn-secondary" data-mod-shop="${escHtml(id)}" data-decision="approve">Onayla</button>
+            <button class="btn btn-sm btn-danger" data-mod-shop="${escHtml(id)}" data-decision="reject">Reddet</button>
+          </div>
+        </div>`;
+      }).join("");
+
+    const renderDeletions = () => !deletions.length ? `<p class="empty-msg">Bekleyen talep yok.</p>` :
+      deletions.map(d => {
+        const id = d.requestId || d.id;
+        return `<div class="mod-item">
+          <p><strong>Kullanıcı:</strong> @${escHtml(d.username || "")}</p>
+          <p><strong>Neden:</strong> ${escHtml(d.reason || "")}</p>
+          ${timeMeta(timeValue(d)) ? `<p><strong>Tarih:</strong> ${timeMeta(timeValue(d))}</p>` : ""}
+          <div class="mod-actions">
+            <button class="btn btn-sm btn-secondary" data-mod-deletion="${escHtml(id)}" data-decision="approve">Onayla</button>
+            <button class="btn btn-sm btn-danger" data-mod-deletion="${escHtml(id)}" data-decision="reject">Reddet</button>
+          </div>
+        </div>`;
+      }).join("");
+
+    const pageContent = () => {
+      if (activeKey === "proof") return { title: "Belge İnceleme", html: renderProofReviews() };
+      if (activeKey === "reports") return { title: "Yorum Şikayetleri", html: renderReports() };
+      if (activeKey === "shops") return { title: "Dükkan Talepleri", html: renderShopRequests() };
+      if (activeKey === "deletions") return { title: "Hesap Silme Talepleri", html: renderDeletions() };
+      return { title: "Son Yorumlar", html: renderComments() };
+    };
+
+    const runModerationAction = async (btn, request, onDone) => {
+      btn.disabled = true;
+      const originalText = btn.textContent;
+      btn.textContent = "İşleniyor...";
+      try {
+        await request();
+        onDone();
         showToast("İşlem tamamlandı.", "success");
-        btn.closest(".mod-item").remove();
-      });
-    });
+        renderPage(activeKey);
+      } catch (err) {
+        btn.disabled = false;
+        btn.textContent = originalText;
+        showToast(err.message || "İşlem tamamlanamadı.", "error");
+      }
+    };
 
-    modal.querySelectorAll("[data-mod-deletion]").forEach(btn => {
-      btn.addEventListener("click", async () => {
-        await api.moderateAccountDeletion({ requestId: btn.dataset.modDeletion, decision: btn.dataset.decision, sessionToken: store.user.sessionToken });
-        showToast("İşlem tamamlandı.", "success");
-        btn.closest(".mod-item").remove();
+    const attachModerationListeners = () => {
+      body.querySelectorAll("[data-mod-tab]").forEach(btn => {
+        btn.addEventListener("click", () => renderPage(btn.dataset.modTab));
       });
-    });
 
-    modal.querySelectorAll("[data-mod-shop]").forEach(btn => {
-      btn.addEventListener("click", async () => {
-        await api.moderateShopRequest({ requestId: btn.dataset.modShop, decision: btn.dataset.decision, sessionToken: store.user.sessionToken });
-        showToast("İşlem tamamlandı.", "success");
-        btn.closest(".mod-item").remove();
+      body.querySelectorAll("[data-mod-proof]").forEach(btn => {
+        btn.addEventListener("click", () => runModerationAction(btn,
+          () => api.moderateProofReview({ reviewId: btn.dataset.modProof, decision: btn.dataset.decision, sessionToken: store.user.sessionToken }),
+          () => { proofReviews = proofReviews.filter(p => String(p.reviewId || p.commentId || p.id) !== btn.dataset.modProof); }
+        ));
       });
-    });
+
+      body.querySelectorAll("[data-mod-report]").forEach(btn => {
+        btn.addEventListener("click", () => runModerationAction(btn,
+          () => api.moderateCommentReport({ reportId: btn.dataset.modReport, decision: btn.dataset.decision, sessionToken: store.user.sessionToken }),
+          () => { reports = reports.filter(r => String(r.reportId || r.id) !== btn.dataset.modReport); }
+        ));
+      });
+
+      body.querySelectorAll("[data-mod-deletion]").forEach(btn => {
+        btn.addEventListener("click", () => runModerationAction(btn,
+          () => api.moderateAccountDeletion({ requestId: btn.dataset.modDeletion, decision: btn.dataset.decision, sessionToken: store.user.sessionToken }),
+          () => { deletions = deletions.filter(d => String(d.requestId || d.id) !== btn.dataset.modDeletion); }
+        ));
+      });
+
+      body.querySelectorAll("[data-mod-shop]").forEach(btn => {
+        btn.addEventListener("click", () => runModerationAction(btn,
+          () => api.moderateShopRequest({ requestId: btn.dataset.modShop, decision: btn.dataset.decision, sessionToken: store.user.sessionToken }),
+          () => { shopRequests = shopRequests.filter(s => String(s.requestId || s.id) !== btn.dataset.modShop); }
+        ));
+      });
+    };
+
+    function renderPage(nextKey = activeKey) {
+      activeKey = nextKey;
+      const page = pageContent();
+      body.innerHTML = `
+        ${renderTabs()}
+        <div class="mod-page">
+          <div class="mod-page-title">
+            <h3>${escHtml(page.title)}</h3>
+          </div>
+          <div class="mod-section">${page.html}</div>
+        </div>`;
+      attachModerationListeners();
+    }
+
+    renderPage();
   } catch (err) {
     modal.querySelector(".modal-body").innerHTML = `<div class="error-state">${uiIcon("warning", "inline-icon")} ${escHtml(err.message)}</div>`;
   }

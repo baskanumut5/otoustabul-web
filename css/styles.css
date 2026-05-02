@@ -208,6 +208,7 @@ img {
 .ui-icon {
   width: 22px;
   height: 22px;
+  overflow: visible;
   stroke: currentColor;
   fill: none;
   stroke-width: 2.25;
@@ -2186,14 +2187,110 @@ img {
   margin-bottom: var(--space-section);
 }
 
+.mod-tabs {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding: 2px 0 14px;
+  background: var(--surface);
+}
+
+.mod-tab-btn {
+  min-height: 48px;
+  padding: 10px 11px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border: 1px solid var(--outline);
+  border-radius: var(--radius-md);
+  background: var(--surface-variant);
+  color: var(--on-surface);
+  font-weight: 850;
+  text-align: left;
+}
+
+.mod-tab-btn span {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  line-height: 1.2;
+}
+
+.mod-tab-btn strong {
+  min-width: 28px;
+  height: 26px;
+  padding: 0 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-pill);
+  background: var(--bg-elevated);
+  color: var(--on-surface-muted);
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.mod-tab-active {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+  color: var(--primary-dark);
+}
+
+.mod-tab-active strong {
+  background: var(--primary);
+  color: #fff;
+}
+
+.mod-page {
+  display: grid;
+  gap: var(--space-block);
+}
+
+.mod-page-title h3 {
+  font-size: 22px;
+  font-weight: 900;
+}
+
 .mod-item {
   padding: 16px;
   box-shadow: var(--shadow-soft);
 }
 
+.mod-item-head {
+  margin-bottom: 10px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-inline);
+}
+
+.mod-item-head strong {
+  color: var(--on-surface);
+  font-size: 15px;
+}
+
+.mod-item-head span {
+  color: var(--on-surface-muted);
+  font-size: 12px;
+  font-weight: 750;
+  text-align: right;
+}
+
 .mod-item p {
   margin-bottom: 7px;
   color: var(--on-surface-muted);
+}
+
+.mod-comment-text {
+  margin-top: 10px;
+  color: var(--on-surface) !important;
+  font-weight: 650;
+  line-height: 1.45;
 }
 
 .mod-actions {

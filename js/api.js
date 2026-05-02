@@ -314,12 +314,16 @@ class UstaBulAPI {
 
   async fetchCommentsForShop(shopId, sessionToken) {
     const data = await this._callRpc("get_public_comments_for_shop", { p_shop_id: shopId });
-    return (data || []).map(this._parseComment);
+    return (data || [])
+      .map(this._parseComment)
+      .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
   }
 
   async fetchAllComments(sessionToken) {
     const data = await this._callRpc("get_public_comments_page", { p_limit: 500, p_offset: 0 });
-    return (data || []).map(this._parseComment);
+    return (data || [])
+      .map(this._parseComment)
+      .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
   }
 
   async addComment({ shopId, text, priceRating, satisfactionRating, sessionToken, captchaToken = "" }) {
@@ -402,9 +406,19 @@ class UstaBulAPI {
   }
 
   _parseComment(c) {
+    const rawTimestamp = c.timestamp ?? c.createdAt ?? c.created_at ?? c.insertedAt ?? c.inserted_at ?? c.updatedAt ?? c.updated_at;
+    let timestamp = 0;
+    if (typeof rawTimestamp === "number") {
+      timestamp = rawTimestamp > 10000000000 ? rawTimestamp : rawTimestamp * 1000;
+    } else if (rawTimestamp) {
+      const parsed = new Date(rawTimestamp).getTime();
+      timestamp = Number.isFinite(parsed) ? parsed : 0;
+    }
+
     return {
       id: c.id,
       shopId: c.shopId || c.shop_id || "",
+      shopName: c.shopName || c.shop_name || c.shop?.name || "",
       username: c.username || c.author_name || "",
       text: c.text || c.body || "",
       priceRating: c.priceRating || c.price_rating || 0,
@@ -419,7 +433,7 @@ class UstaBulAPI {
       authorHasVerifiedBadge: c.authorHasVerifiedBadge || c.author_has_verified_badge || false,
       helpfulCount: c.helpfulCount || c.helpful_count || 0,
       unhelpfulCount: c.unhelpfulCount || c.unhelpful_count || 0,
-      timestamp: c.timestamp || (c.created_at ? new Date(c.created_at).getTime() : 0),
+      timestamp,
     };
   }
 
