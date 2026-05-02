@@ -288,7 +288,7 @@ img {
   min-height: calc(var(--nav-height) + env(safe-area-inset-bottom));
   padding: 10px 10px calc(10px + env(safe-area-inset-bottom));
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 4px;
   flex-shrink: 0;
   background: var(--nav-surface);
@@ -988,6 +988,15 @@ img {
   width: 100%;
   margin: 4px 0 2px;
   background: var(--outline);
+}
+
+.home-search-wrap {
+  margin: 0 var(--space-screen) 16px;
+}
+
+.home-search-wrap .search-bar-wrap {
+  min-height: 64px;
+  border-radius: var(--radius-lg);
 }
 
 .screen-divider {

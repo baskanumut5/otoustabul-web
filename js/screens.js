@@ -757,12 +757,9 @@ function renderApp() {
           <span class="nav-icon">${uiIcon("home")}</span><span class="nav-label">Ana Sayfa</span>
         </button>
         <button class="nav-item ${store.currentTab === 1 ? "active" : ""}" data-tab="1">
-          <span class="nav-icon">${uiIcon("store")}</span><span class="nav-label">Dükkan Ara</span>
-        </button>
-        <button class="nav-item ${store.currentTab === 2 ? "active" : ""}" data-tab="2">
           <span class="nav-icon">${uiIcon("heart")}</span><span class="nav-label">Favoriler</span>
         </button>
-        <button class="nav-item ${store.currentTab === 3 ? "active" : ""}" data-tab="3">
+        <button class="nav-item ${store.currentTab === 2 ? "active" : ""}" data-tab="2">
           <span class="nav-icon">${uiIcon("settings")}</span><span class="nav-label">Ayarlar</span>
         </button>
       </nav>
@@ -1134,6 +1131,7 @@ function mergeShopLists(existingShops, incomingShops) {
 }
 
 function homeResultsTitle() {
+  if (isHomeSearchActive()) return `"${homeState.searchQuery.trim()}" arama sonuçları`;
   switch (homeState.selectedCollection) {
     case "RecentlyLiked":
       return "Memnuniyet oran\u0131 y\u00fcksek ustalar";
@@ -1146,7 +1144,7 @@ function homeResultsTitle() {
 }
 
 function homeEmptyStateSubtitle() {
-  if (isHomeSearchActive()) return "FarklÄ± bir dÃ¼kkan adÄ± veya arama kelimesi deneyin.";
+  if (isHomeSearchActive()) return "Farklı bir dükkan adı veya arama kelimesi deneyin.";
   switch (homeState.selectedCollection) {
     case "RecentlyLiked":
     case "WorstRated":
@@ -1286,8 +1284,48 @@ async function loadHomeShops() {
     if (token !== homeState._reqToken) return;
     homeState.error = err.message || "Ustalar yüklenemedi.";
     homeState.shops = [];
+    resetHomeSearchPaging();
     homeState._rankings = null;
     homeState._rankingsKey = null;
+  } finally {
+    if (token === homeState._reqToken) {
+      homeState.loading = false;
+      renderHomeShops();
+    }
+  }
+}
+
+async function loadHomeSearchResults() {
+  const token = ++homeState._reqToken;
+  const isFirstPage = homeState.searchPage === 0;
+  homeState.loading = true;
+  homeState.error = null;
+  const content = document.getElementById("home-content");
+  if (content && isFirstPage) content.innerHTML = loadingHtml();
+
+  try {
+    const result = await api.fetchDirectory({
+      city: store.selectedCity,
+      district: store.selectedDistrict,
+      category: HOME_DEFAULT_CATEGORY,
+      serviceBrand: "",
+      serviceModel: "",
+      searchQuery: homeState.searchQuery.trim(),
+      offset: isFirstPage ? 0 : homeState.searchNextOffset,
+      limit: 50,
+    });
+    if (token !== homeState._reqToken) return;
+    homeState.shops = isFirstPage
+      ? result.shops
+      : mergeShopLists(homeState.shops, result.shops);
+    homeState.searchTotal = result.total || homeState.shops.length;
+    homeState.searchNextOffset = result.nextOffset ?? homeState.shops.length;
+    homeState.searchHasMore = result.hasMore;
+    store.mergeShops(result.shops);
+  } catch (err) {
+    if (token !== homeState._reqToken) return;
+    homeState.error = err.message || "Ustalar yüklenemedi.";
+    if (isFirstPage) homeState.shops = [];
   } finally {
     if (token === homeState._reqToken) {
       homeState.loading = false;
@@ -1299,6 +1337,7 @@ async function loadHomeShops() {
 function renderHomeShops() {
   const content = document.getElementById("home-content");
   if (!content) return;
+  const searchActive = isHomeSearchActive();
   if (homeState.loading) {
     content.innerHTML = loadingHtml();
     return;
@@ -1316,12 +1355,25 @@ function renderHomeShops() {
     return;
   }
   content.innerHTML = `
-    <div class="section-title section-title-large">${escHtml(homeResultsTitle())}</div>
+    <div class="section-title section-title-large">
+      ${escHtml(homeResultsTitle())}
+      ${searchActive ? `<span class="count-badge">${homeState.shops.length}${homeState.searchTotal ? ` / ${homeState.searchTotal}` : ""}</span>` : ""}
+    </div>
     <div class="shops-list" id="home-shops-list">
-      ${shopCardsWithInlineAdsHtml(homeState.shops, true, "home")}
-    </div>`;
+      ${shopCardsWithInlineAdsHtml(homeState.shops, !searchActive, "home")}
+    </div>
+    ${searchActive && homeState.searchHasMore ? `<button class="btn btn-secondary load-more-btn" id="home-search-load-more">Kalanları Yükle</button>` : ""}`;
   attachShopCardListeners(content);
   renderPendingInlineAds(content);
+  document.getElementById("home-search-load-more")?.addEventListener("click", async () => {
+    const btn = document.getElementById("home-search-load-more");
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = "Yükleniyor...";
+    }
+    homeState.searchPage++;
+    await loadHomeShops();
+  });
 }
 
 function homeQuickBrandChipsHtml() {
@@ -1362,6 +1414,7 @@ function homeFilterCardHtml() {
 }
 
 function applyHomeFilters({ category, brand, model, collection }) {
+  clearHomeSearchForFilters();
   const nextCategory = categoryKey(category ?? homeState.selectedCategory, HOME_DEFAULT_CATEGORY);
   homeState.selectedCategory = nextCategory;
   homeState.selectedBrand = shouldShowHomeBrandFilter(nextCategory)
