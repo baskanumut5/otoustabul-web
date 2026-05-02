@@ -113,7 +113,7 @@ function shopCardHtml(shop, isFavorite, showDistance = false) {
 }
 
 function commentCardHtml(comment, voteType = null, isLoggedIn = false) {
-  const avg = comment.averageRating != null ? Number(comment.averageRating).toFixed(1) : ((comment.priceRating + comment.satisfactionRating) / 2).toFixed(1);
+  const avg = formatRating(commentRatingValue(comment));
   const badges = [];
   if (comment.isOfficiallyVerified) badges.push(`<span class="badge badge-verified">Fatura doğrulandı</span>`);
   else if (comment.isVerified) badges.push(`<span class="badge badge-verified-light">Belge var</span>`);

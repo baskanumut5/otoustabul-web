@@ -57,16 +57,15 @@ function clampRating(value) {
 }
 
 function commentRating(comment) {
-  const explicitAverage = clampRating(comment?.averageRating ?? comment?.average_rating);
-  if (explicitAverage != null) return explicitAverage;
+  const price = clampRating(comment?.priceRating ?? comment?.price_rating);
+  const satisfaction = clampRating(comment?.satisfactionRating ?? comment?.satisfaction_rating);
+  if (price != null && satisfaction != null) return (price + satisfaction) / 2;
+  if (price != null || satisfaction != null) return price ?? satisfaction;
 
   const directRating = clampRating(comment?.rating ?? comment?.starRating ?? comment?.star_rating);
   if (directRating != null) return directRating;
 
-  const price = clampRating(comment?.priceRating ?? comment?.price_rating);
-  const satisfaction = clampRating(comment?.satisfactionRating ?? comment?.satisfaction_rating);
-  if (price != null && satisfaction != null) return (price + satisfaction) / 2;
-  return price ?? satisfaction;
+  return clampRating(comment?.averageRating ?? comment?.average_rating);
 }
 
 function emptyStats() {

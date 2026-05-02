@@ -96,6 +96,21 @@ function shopReviewCount(shop) {
   return Math.max(0, Math.floor(Number(shopRatingMetrics(shop).reviewCount || 0)));
 }
 
+function commentRatingValue(comment) {
+  const price = clampRatingValue(comment?.priceRating ?? comment?.price_rating);
+  const satisfaction = clampRatingValue(comment?.satisfactionRating ?? comment?.satisfaction_rating);
+  if (price != null && satisfaction != null) return (price + satisfaction) / 2;
+  if (price != null || satisfaction != null) return price ?? satisfaction;
+
+  return clampRatingValue(firstPositiveNumber(
+    comment?.rating,
+    comment?.starRating,
+    comment?.star_rating,
+    comment?.averageRating,
+    comment?.average_rating
+  ));
+}
+
 function starsHtml(rating, max = 5) {
   const pct = Math.max(0, Math.min(max, rating || 0)) / max * 100;
   return `<span class="stars" title="${formatRating(rating)}">
