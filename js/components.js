@@ -69,10 +69,10 @@ function emptyStateHtml(icon, title, subtitle = "") {
   </div>`;
 }
 
-function shopCardHtml(shop, isFavorite, showDistance = false) {
+function shopCardHtml(shop, isFavorite, showDistance = false, options = {}) {
   const rating = shopRatingValue(shop);
   const reviewCount = shopReviewCount(shop);
-  const categoryLabels = displayCategoryLabels(shop.categoryName).slice(0, 2);
+  const categoryLabels = categoryLabelsForShopCard(shop).slice(0, 2);
   const openBadge = shop.isOpenNow === true
     ? `<span class="badge badge-open">${uiIcon("clock", "inline-icon")} Açık</span>`
     : shop.isOpenNow === false
@@ -83,7 +83,9 @@ function shopCardHtml(shop, isFavorite, showDistance = false) {
         ? `${Math.round(shop.distanceMeters)} m`
         : `${(shop.distanceMeters / 1000).toFixed(1)} km`}</span>`
     : "";
-  const photoUrl = shopPhotoUrl(shop, 420);
+  const photoUrl = options.loadPhoto === false
+    ? null
+    : shopPhotoUrl(shop, 420, { allowPlaceIdLookup: options.allowPlaceIdLookup === true });
   const photo = photoUrl
     ? `<div class="shop-card-photo"><img src="${escHtml(photoUrl)}" alt="" loading="lazy" data-photo-fallback="shop-card-photo-placeholder"></div>`
     : `<div class="shop-card-photo shop-card-photo-placeholder"><span>${escHtml(categoryIcon(shop.categoryName))}</span></div>`;
@@ -110,6 +112,21 @@ function shopCardHtml(shop, isFavorite, showDistance = false) {
       <div class="shop-meta">${openBadge}${distText}</div>
     </div>
   </div>`;
+}
+
+function categoryLabelsForShopCard(shop) {
+  const labels = displayCategoryLabels(shop?.categoryName).slice(0, 2);
+  if (labels.length) return labels;
+  const text = normalizeText(`${shop?.name || ""} ${shop?.address || ""}`);
+  const inferred = CATEGORIES
+    .filter(category =>
+      category.key !== "All" &&
+      !NON_SELECTABLE_CATEGORY_KEYS.has(category.key) &&
+      (text.includes(normalizeText(category.label)) ||
+        text.includes(normalizeText(category.key)))
+    )
+    .map(category => category.label);
+  return inferred.length ? inferred.slice(0, 2) : ["Oto Servis"];
 }
 
 function commentCardHtml(comment, voteType = null, isLoggedIn = false) {

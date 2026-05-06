@@ -1,7 +1,37 @@
 name = "ustabul-api-proxy"
 main = "src/index.js"
 compatibility_date = "2026-04-28"
+workers_dev = true
+routes = [
+  { pattern = "app.otoustabul.com/functions/v1/*", zone_name = "otoustabul.com" },
+  { pattern = "app.otoustabul.com/rest/v1/*", zone_name = "otoustabul.com" },
+]
 
 [vars]
 # Project URL is public; anon key stays in Cloudflare as a secret.
 SUPABASE_URL = "https://rfoatwcfqcwyfyffahbx.supabase.co"
+GOOGLE_COST_SAVER_MODE = "true"
+ENABLE_GOOGLE_PLACES_PHOTOS = "false"
+ENABLE_GOOGLE_PLACES_PHOTO_FALLBACK = "true"
+ENABLE_GOOGLE_PLACE_DETAILS = "false"
+ENABLE_GOOGLE_REVIEWS = "false"
+GOOGLE_DAILY_SEARCH_LIMIT = "0"
+GOOGLE_DAILY_DETAILS_LIMIT = "0"
+GOOGLE_DAILY_PHOTO_LIMIT = "200"
+GOOGLE_DAILY_REVIEW_LIMIT = "0"
+ENABLE_FOURSQUARE_PLACE_MATCH = "false"
+ENABLE_FOURSQUARE_PLACE_DETAILS = "false"
+ENABLE_FOURSQUARE_PLACE_PHOTOS = "false"
+FOURSQUARE_DAILY_MATCH_LIMIT = "0"
+FOURSQUARE_DAILY_DETAILS_LIMIT = "0"
+FOURSQUARE_DAILY_PHOTO_LIMIT = "0"
+CATALOG_DATA_CACHE_TTL_SECONDS = "2592000"
+CATALOG_STALE_CACHE_TTL_SECONDS = "2592000"
+CATALOG_REFRESH_LOCK_SECONDS = "90"
+REVIEW_STATS_CACHE_TTL_SECONDS = "60"
+CLIENT_CATALOG_CACHE_TTL_SECONDS = "0"
+PLACE_DETAILS_CACHE_TTL_SECONDS = "2592000"
+ENABLE_DETAIL_CACHE_WARMUP = "true"
+DETAIL_ENRICH_LIMIT = "7"
+GOOGLE_PHOTO_CACHE_TTL_SECONDS = "2592000"
+FILTER_POOL_LIMIT = "50"

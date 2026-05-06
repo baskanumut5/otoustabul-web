@@ -9,7 +9,7 @@ const CONFIG = {
   // GÃ¼venlik: web client'ta Supabase anon key tutmayÄ±n.
   // Bunun yerine Supabase Ã§aÄŸrÄ±larÄ±nÄ± bir proxy (Ã¶r. Cloudflare Worker) Ã¼zerinden yapÄ±n.
   // Ã–rnek: "https://ustabul-api.<kullanici>.workers.dev"
-  API_BASE_URL: "https://ustabul-api-proxy.app-ustabul.workers.dev",
+  API_BASE_URL: "https://app.otoustabul.com",
 
   // Sadece local/test amaÃ§lÄ±: doÄŸrudan Supabase'e baÄŸlanmak isterseniz aÃ§Ä±n.
   USE_SUPABASE_DIRECT: false,
@@ -55,7 +55,11 @@ const CONFIG = {
 
   // DIKKAT: Google Places API anahtari web client'a konmaz.
   // Dukkan fotograflari backend/proxy uzerinden alinir.
+  GOOGLE_COST_SAVER_MODE: true,
   ENABLE_GOOGLE_PLACES_PHOTOS: false,
+  ENABLE_GOOGLE_PLACES_PHOTO_FALLBACK: true,
+  ENABLE_GOOGLE_PLACE_DETAILS: false,
+  ENABLE_GOOGLE_REVIEWS: false,
   GOOGLE_PLACES_API_KEY: "",
 
   MODERATOR_USERNAMES: ["mehmetsattuf"],

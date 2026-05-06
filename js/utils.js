@@ -67,24 +67,33 @@ function clampRatingValue(value) {
 }
 
 function shopRatingMetrics(shop) {
-  const rating = clampRatingValue(firstPositiveNumber(
+  const explicitDisplayCount = shop && Object.prototype.hasOwnProperty.call(shop, "displayReviewCount")
+    ? shop.displayReviewCount
+    : shop && Object.prototype.hasOwnProperty.call(shop, "display_review_count")
+      ? shop.display_review_count
+      : null;
+  const visibleFallbackCount = firstPositiveNumber(
+    shop?.appReviewCount,
+    shop?.app_review_count,
+    shop?.appCommentCount,
+    shop?.app_comment_count
+  );
+  const reviewCount = Math.max(0, Math.floor(Number(
+    explicitDisplayCount ?? visibleFallbackCount ?? 0
+  )));
+  const rawRating = clampRatingValue(firstPositiveNumber(
     shop?.displayRating,
     shop?.display_rating,
     shop?.appDisplayRating,
     shop?.app_display_rating,
+    shop?.overallRating,
+    shop?.overall_rating,
     shop?.backendRating,
     shop?.backend_rating,
     shop?.calculatedRating,
     shop?.calculated_rating
   ));
-  const reviewCount = Math.max(0, Math.floor(Number(firstNonNegativeNumber(
-    shop?.displayReviewCount,
-    shop?.display_review_count,
-    shop?.appReviewCount,
-    shop?.app_review_count,
-    shop?.appCommentCount,
-    shop?.app_comment_count
-  ) || 0)));
+  const rating = reviewCount > 0 ? rawRating : null;
   return { rating, reviewCount };
 }
 
@@ -94,6 +103,36 @@ function shopRatingValue(shop) {
 
 function shopReviewCount(shop) {
   return Math.max(0, Math.floor(Number(shopRatingMetrics(shop).reviewCount || 0)));
+}
+
+function googleReviewSnapshotMetrics(shop) {
+  const reviews = Array.isArray(shop?.googleReviews || shop?.google_reviews)
+    ? (shop.googleReviews || shop.google_reviews)
+    : [];
+  const reviewAverage = reviews.length
+    ? reviews.reduce((sum, review) => sum + (clampRatingValue(review?.rating) || 0), 0) / reviews.length
+    : null;
+  const rating = clampRatingValue(firstPositiveNumber(
+    shop?.googleWrittenReviewAverage,
+    shop?.google_written_review_average,
+    reviewAverage,
+    shop?.googleRating,
+    shop?.google_rating
+  ));
+  const reviewCount = Math.max(0, Math.floor(Number(firstPositiveNumber(
+    shop?.googleWrittenReviewCount,
+    shop?.google_written_review_count,
+    reviews.length,
+    shop?.googleReviewCount,
+    shop?.google_review_count
+  ) || 0)));
+  return { rating: reviewCount > 0 ? rating : null, reviewCount };
+}
+
+function shopDetailRatingMetrics(shop) {
+  const appMetrics = shopRatingMetrics(shop);
+  if (appMetrics.rating != null && appMetrics.reviewCount > 0) return appMetrics;
+  return googleReviewSnapshotMetrics(shop);
 }
 
 function commentRatingValue(comment) {
@@ -252,6 +291,23 @@ function normalizedPhotoWidth(maxWidth = 400) {
   return Math.max(80, Math.min(1200, Math.round(Number(maxWidth) || 400)));
 }
 
+function googleCostSaverMode() {
+  return CONFIG?.GOOGLE_COST_SAVER_MODE !== false;
+}
+
+function googlePlaceDetailsEnabled() {
+  return !googleCostSaverMode() && CONFIG?.ENABLE_GOOGLE_PLACE_DETAILS === true;
+}
+
+function googleReviewsEnabled() {
+  return CONFIG?.ENABLE_GOOGLE_REVIEWS === true;
+}
+
+function googlePlacePhotosEnabled() {
+  return (!googleCostSaverMode() && CONFIG?.ENABLE_GOOGLE_PLACES_PHOTOS === true) ||
+    CONFIG?.ENABLE_GOOGLE_PLACES_PHOTO_FALLBACK === true;
+}
+
 function backendPhotoProxyBaseUrl() {
   return String(CONFIG?.API_BASE_URL || CONFIG?.SUPABASE_URL || "")
     .trim()
@@ -278,7 +334,8 @@ function proxiedBackendPhotoUrl(rawUrl, maxWidth = 400) {
     const isBackendPhotoFunction =
       url.pathname.includes("/functions/v1/app-shop-photo") ||
       url.pathname.includes("/functions/v1/app-shop-catalog/photo");
-    if (!isBackendPhotoFunction) return value;
+    if (!isBackendPhotoFunction) return isGoogleHostedUrl(url) ? null : value;
+    if (!googlePlacePhotosEnabled()) return null;
     const photoReference = url.searchParams.get("ref") ||
       url.searchParams.get("photo_reference");
     const placeId = url.searchParams.get("placeId") ||
@@ -294,18 +351,29 @@ function proxiedBackendPhotoUrl(rawUrl, maxWidth = 400) {
 }
 
 function googlePhotoUrl(photoReference, maxWidth = 400) {
+  if (!googlePlacePhotosEnabled()) return null;
   const ref = String(photoReference || "").trim();
   if (!ref) return null;
   return backendPhotoProxyUrl({ ref }, maxWidth);
 }
 
-function shopPhotoUrl(shop, maxWidth = 400) {
+function shopPhotoUrl(shop, maxWidth = 400, options = {}) {
   const exteriorUrl = proxiedBackendPhotoUrl(shop.exteriorPhotoUrl, maxWidth);
   if (exteriorUrl) return exteriorUrl;
+  if (!googlePlacePhotosEnabled()) return null;
   const ref = normalizePhotoReferences(shop.photoReferences)[0];
-  if (ref) return googlePhotoUrl(ref, maxWidth);
-  if (shop.placeId) return backendPhotoProxyUrl({ placeId: shop.placeId }, maxWidth);
+  if (ref) return backendPhotoProxyUrl({ ref, placeId: shop.placeId }, maxWidth);
+  if (options.allowPlaceIdLookup === true && shop.placeId) {
+    return backendPhotoProxyUrl({ placeId: shop.placeId }, maxWidth);
+  }
   return null;
+}
+
+function isGoogleHostedUrl(url) {
+  const host = String(url?.hostname || "").toLowerCase();
+  return host === "maps.googleapis.com" ||
+    host.endsWith(".googleapis.com") ||
+    host.endsWith(".googleusercontent.com");
 }
 
 function shopCommentThreadId(shop) {

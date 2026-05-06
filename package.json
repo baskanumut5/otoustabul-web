@@ -1,5 +1,6 @@
 {
   "scripts": {
-    "build:pages": "node scripts/build-pages.js"
+    "build:pages": "node scripts/build-pages.js",
+    "test:worker": "node scripts/worker-behavior-tests.mjs"
   }
 }

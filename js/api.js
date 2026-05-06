@@ -8,10 +8,109 @@ class UstaBulAPI {
     this.direct = !this.proxyBaseUrl && Boolean(CONFIG.USE_SUPABASE_DIRECT);
     this.baseUrl = this.proxyBaseUrl || String(CONFIG.SUPABASE_URL || "").trim().replace(/\/+$/, "");
     this.anonKey = this.direct ? String(CONFIG.SUPABASE_ANON_KEY || "").trim() : "";
+    this.placeDetailsCacheStorageKey = "ustabul_place_details_cache_v1";
+    this.placeDetailsCacheTtlMs = this._positiveInt(CONFIG.PLACE_DETAILS_CACHE_TTL_MS, 12 * 60 * 60 * 1000);
+    this.maxPlaceDetailsCacheEntries = this._positiveInt(CONFIG.PLACE_DETAILS_CACHE_MAX_ENTRIES, 120);
+    this.placeDetailsCache = this._loadPlaceDetailsCache();
+    this.placeDetailsInFlight = new Map();
   }
 
   get isConfigured() {
     return Boolean(this.proxyBaseUrl) || (this.baseUrl && this.direct && this.anonKey);
+  }
+
+  _positiveInt(value, fallback) {
+    const parsed = Number.parseInt(String(value ?? ""), 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+  }
+
+  _placeDetailsStorage() {
+    try {
+      if (window.sessionStorage) return window.sessionStorage;
+    } catch {}
+    try {
+      if (window.localStorage) return window.localStorage;
+    } catch {}
+    return null;
+  }
+
+  _clonePlaceDetails(details) {
+    if (!details || typeof details !== "object") return details;
+    try {
+      if (typeof structuredClone === "function") return structuredClone(details);
+    } catch {}
+    return JSON.parse(JSON.stringify(details));
+  }
+
+  _prunePlaceDetailsCache(now = Date.now()) {
+    let changed = false;
+    for (const [placeId, entry] of this.placeDetailsCache.entries()) {
+      const savedAt = Number(entry?.savedAt || 0);
+      if (!entry?.data || !savedAt || (now - savedAt) > this.placeDetailsCacheTtlMs) {
+        this.placeDetailsCache.delete(placeId);
+        changed = true;
+      }
+    }
+
+    const entries = [...this.placeDetailsCache.entries()]
+      .sort((left, right) => Number(right[1]?.savedAt || 0) - Number(left[1]?.savedAt || 0));
+    if (entries.length > this.maxPlaceDetailsCacheEntries) {
+      entries.slice(this.maxPlaceDetailsCacheEntries).forEach(([placeId]) => {
+        this.placeDetailsCache.delete(placeId);
+        changed = true;
+      });
+    }
+    return changed;
+  }
+
+  _persistPlaceDetailsCache() {
+    const storage = this._placeDetailsStorage();
+    if (!storage) return;
+    try {
+      this._prunePlaceDetailsCache();
+      const serialized = {};
+      for (const [placeId, entry] of this.placeDetailsCache.entries()) {
+        serialized[placeId] = entry;
+      }
+      storage.setItem(this.placeDetailsCacheStorageKey, JSON.stringify(serialized));
+    } catch {}
+  }
+
+  _loadPlaceDetailsCache() {
+    const map = new Map();
+    const storage = this._placeDetailsStorage();
+    if (!storage) return map;
+    try {
+      const raw = storage.getItem(this.placeDetailsCacheStorageKey);
+      const parsed = raw ? JSON.parse(raw) : {};
+      if (!parsed || typeof parsed !== "object") return map;
+      Object.entries(parsed).forEach(([placeId, entry]) => {
+        const id = String(placeId || "").trim();
+        if (!id || !entry || typeof entry !== "object") return;
+        map.set(id, entry);
+      });
+    } catch {}
+    this.placeDetailsCache = map;
+    if (this._prunePlaceDetailsCache()) this._persistPlaceDetailsCache();
+    return map;
+  }
+
+  _getCachedPlaceDetails(placeId) {
+    const id = String(placeId || "").trim();
+    if (!id) return null;
+    if (this._prunePlaceDetailsCache()) this._persistPlaceDetailsCache();
+    const entry = this.placeDetailsCache.get(id);
+    return entry?.data ? this._clonePlaceDetails(entry.data) : null;
+  }
+
+  _rememberPlaceDetails(placeId, details) {
+    const id = String(placeId || "").trim();
+    if (!id || !details || typeof details !== "object") return;
+    this.placeDetailsCache.set(id, {
+      savedAt: Date.now(),
+      data: this._clonePlaceDetails(details),
+    });
+    this._persistPlaceDetailsCache();
   }
 
   async _callFunction(functionName, body, sessionToken = null) {
@@ -238,25 +337,47 @@ class UstaBulAPI {
     return data.snapshot || null;
   }
 
-  async fetchPlaceDetails(placeId) {
-    const data = await this._callFunction("app-shop-catalog", {
+  async fetchPlaceDetails(placeId, options = {}) {
+    const id = String(placeId || "").trim();
+    if (!id) return null;
+
+    if (!options?.forceRefresh) {
+      const cached = this._getCachedPlaceDetails(id);
+      if (cached) return cached;
+
+      const inflight = this.placeDetailsInFlight.get(id);
+      if (inflight) return this._clonePlaceDetails(await inflight);
+    }
+
+    const request = this._callFunction("app-shop-catalog", {
       action: "get_place_details",
-      placeId,
+      placeId: id,
+    }).then(data => {
+      const details = data.details || null;
+      if (details) this._rememberPlaceDetails(id, details);
+      return details;
+    }).finally(() => {
+      this.placeDetailsInFlight.delete(id);
     });
-    return data.details || null;
+
+    this.placeDetailsInFlight.set(id, request);
+    return this._clonePlaceDetails(await request);
   }
 
   async fetchSharedShop(placeId) {
     const id = String(placeId || "").trim();
     if (!id) return null;
 
-    const details = await this.fetchPlaceDetails(id);
-    if (!details) return null;
+    const details = await this.fetchPlaceDetails(id).catch(() => null);
+    const snapshot = details ? null : await this.fetchPlaceSnapshot(id).catch(() => null);
+    const resolved = details || snapshot;
+    if (!resolved) return null;
 
     return this._parseShop({
-      ...details,
-      id: details.id || details.place_id || id,
-      placeId: details.placeId || details.place_id || id,
+      ...resolved,
+      id: resolved.id || resolved.place_id || id,
+      placeId: resolved.placeId || resolved.place_id || id,
+      placeDetailsLoaded: Boolean(details),
     });
   }
 
@@ -293,8 +414,24 @@ class UstaBulAPI {
   _parseShop(s) {
     const googleRating = s.googleRating ?? s.google_rating ?? s.rating ?? s.placeRating ?? s.place_rating ?? s.googlePlaceRating ?? s.google_place_rating ?? null;
     const googleReviewCount = s.googleReviewCount ?? s.google_review_count ?? s.userRatingsTotal ?? s.user_ratings_total ?? s.googleUserRatingsTotal ?? s.google_user_ratings_total ?? s.ratingCount ?? s.rating_count ?? s.reviewCount ?? s.review_count ?? 0;
-    const displayRating = s.displayRating ?? s.display_rating ?? s.appDisplayRating ?? s.app_display_rating ?? s.backendRating ?? s.backend_rating ?? s.calculatedRating ?? s.calculated_rating ?? null;
-    const displayReviewCount = s.displayReviewCount ?? s.display_review_count ?? s.appReviewCount ?? s.app_review_count ?? s.backendReviewCount ?? s.backend_review_count ?? s.calculatedReviewCount ?? s.calculated_review_count ?? null;
+    const displayRating = s.displayRating ?? s.display_rating ?? s.appDisplayRating ?? s.app_display_rating ?? s.overallRating ?? s.overall_rating ?? s.backendRating ?? s.backend_rating ?? s.calculatedRating ?? s.calculated_rating ?? null;
+    const explicitDisplayCount = Object.prototype.hasOwnProperty.call(s, "displayReviewCount")
+      ? s.displayReviewCount
+      : Object.prototype.hasOwnProperty.call(s, "display_review_count")
+        ? s.display_review_count
+        : null;
+    const displayReviewCount = explicitDisplayCount == null
+      ? firstPositiveNumber(
+        s.appReviewCount,
+        s.app_review_count,
+        s.appCommentCount,
+        s.app_comment_count,
+        s.backendReviewCount,
+        s.backend_review_count,
+        s.calculatedReviewCount,
+        s.calculated_review_count,
+      )
+      : Math.max(0, Math.floor(Number(explicitDisplayCount) || 0));
     return {
       id: s.id || s.place_id || "",
       name: s.name || "",
@@ -321,6 +458,9 @@ class UstaBulAPI {
       photoCount: s.photoCount || s.photo_count || 0,
       isOpenNow: s.isOpenNow ?? s.is_open_now ?? null,
       distanceMeters: s.distanceMeters || s.distance_meters || null,
+      placeDetailsLoaded: Boolean(s.placeDetailsLoaded || s.place_details_loaded),
+      cacheStatus: s.cacheStatus || s.cache_status || "",
+      cacheExpiresAt: s.cacheExpiresAt || s.cache_expires_at || "",
     };
   }
 
@@ -340,11 +480,13 @@ class UstaBulAPI {
       .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
   }
 
-  async addComment({ shopId, text, priceRating, satisfactionRating, sessionToken, captchaToken = "" }) {
+  async addComment({ shopId, shopName = "", shopSnapshot = null, text, priceRating, satisfactionRating, sessionToken, captchaToken = "" }) {
     await this._callFunction("app-secure-actions", {
       action: "add_comment",
       sessionToken,
       shopId,
+      shopName,
+      shopSnapshot,
       text,
       priceRating,
       satisfactionRating,

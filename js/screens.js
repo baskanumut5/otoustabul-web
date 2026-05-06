@@ -897,6 +897,8 @@ function requireLoginForAction(message = "Bu islem icin giris yapmalisin.") {
 
 const HOME_DEFAULT_CATEGORY = "All";
 const HOME_DEFAULT_COLLECTION = "DefaultFlow";
+const HOME_RESULT_LIMIT = 10;
+const HOME_PHOTO_LIMIT = 4;
 const HOME_QUICK_CATEGORY_KEYS = [
   "All",
   "OtoServis",
@@ -1071,11 +1073,22 @@ function inlineAdCardHtml(context = "shops") {
     </div>`;
 }
 
-function shopCardsWithInlineAdsHtml(shops, showDistance = false, context = "shops") {
+function shopCardsWithInlineAdsHtml(shops, showDistance = false, context = "shops", options = {}) {
   const frequency = getAdsenseInlineFrequency();
+  const photoLimit = Number.isFinite(Number(options.photoLimit))
+    ? Math.max(0, Math.trunc(Number(options.photoLimit)))
+    : null;
   const fragments = [];
   shops.forEach((shop, index) => {
-    fragments.push(shopCardHtml(shop, store.isFavorite(shop.id), showDistance));
+    const loadPhoto = options.searchMode
+      ? index === 0
+      : photoLimit == null
+        ? true
+        : index < photoLimit;
+    fragments.push(shopCardHtml(shop, store.isFavorite(shop.id), showDistance, {
+      loadPhoto,
+      allowPlaceIdLookup: false,
+    }));
     const shouldInsertAd = canUseInlineAds() &&
       (index + 1) % frequency === 0 &&
       index < shops.length - 1;
@@ -1116,6 +1129,27 @@ function shopThreadKey(shop) {
   return String(shop?.placeId || shop?.id || "").trim();
 }
 
+function shopSnapshotPayload(shop) {
+  if (!shop) return {};
+  return {
+    id: shop.id || shop.placeId || "",
+    placeId: shop.placeId || shop.id || "",
+    name: shop.name || "",
+    address: shop.address || "",
+    phone: shop.phone || "",
+    latitude: shop.latitude || 0,
+    longitude: shop.longitude || 0,
+    categoryName: shop.categoryName || "",
+    serviceBrand: shop.serviceBrand || "",
+    serviceModel: shop.serviceModel || "",
+    photoReferences: Array.isArray(shop.photoReferences) ? shop.photoReferences : [],
+    exteriorPhotoUrl: shop.exteriorPhotoUrl || "",
+    photoCount: shop.photoCount || 0,
+    isOpenNow: shop.isOpenNow ?? null,
+    placeDetailsLoaded: Boolean(shop.placeDetailsLoaded),
+  };
+}
+
 function uniqueShopsByThreadId(...groups) {
   const out = [];
   const seen = new Set();
@@ -1141,21 +1175,25 @@ function sortShopsByThreadIds(shops, threadIds) {
     .filter(Boolean);
 }
 
+function limitHomeShops(shops) {
+  return (Array.isArray(shops) ? shops : []).slice(0, HOME_RESULT_LIMIT);
+}
+
 function pickHomeCollectionShops(rankings, collection = homeState.selectedCollection) {
   if (!rankings) return [];
   const pool = rankings.rankedShops || [];
   switch (collection) {
     case "RecentlyLiked": {
       const ranked = sortShopsByThreadIds(pool, rankings.recentlyLikedThreadIds);
-      return ranked.length ? ranked : pool;
+      return limitHomeShops(ranked.length ? ranked : pool);
     }
     case "WorstRated": {
       const ranked = sortShopsByThreadIds(pool, rankings.worstRatedThreadIds);
-      return ranked.length ? ranked : pool;
+      return limitHomeShops(ranked);
     }
     case "DefaultFlow":
     default:
-      return pool;
+      return limitHomeShops(pool);
   }
 }
 
@@ -1437,15 +1475,16 @@ async function loadHomeSearchResults() {
       serviceModel: "",
       searchQuery: homeState.searchQuery.trim(),
       offset: isFirstPage ? 0 : homeState.searchNextOffset,
-      limit: 50,
+      limit: HOME_RESULT_LIMIT,
     });
     if (token !== homeState._reqToken) return;
-    homeState.shops = isFirstPage
+    const nextShops = isFirstPage
       ? result.shops
       : mergeShopLists(homeState.shops, result.shops);
+    homeState.shops = limitHomeShops(nextShops);
     homeState.searchTotal = result.total || homeState.shops.length;
     homeState.searchNextOffset = result.nextOffset ?? homeState.shops.length;
-    homeState.searchHasMore = result.hasMore;
+    homeState.searchHasMore = false;
     store.mergeShops(result.shops);
   } catch (err) {
     if (token !== homeState._reqToken) return;
@@ -1485,7 +1524,7 @@ function renderHomeShops() {
       ${searchActive ? `<span class="count-badge">${homeState.shops.length}${homeState.searchTotal ? ` / ${homeState.searchTotal}` : ""}</span>` : ""}
     </div>
     <div class="shops-list" id="home-shops-list">
-      ${shopCardsWithInlineAdsHtml(homeState.shops, !searchActive, "home")}
+      ${shopCardsWithInlineAdsHtml(homeState.shops, !searchActive, "home", { searchMode: searchActive, photoLimit: HOME_PHOTO_LIMIT })}
     </div>
     ${searchActive && homeState.searchHasMore ? `<button class="btn btn-secondary load-more-btn" id="home-search-load-more">Kalanları Yükle</button>` : ""}`;
   attachShopCardListeners(content);
@@ -1953,7 +1992,7 @@ function renderShopsList() {
       Dükkanlar <span class="count-badge">${shopsState.shops.length}${shopsState.total ? ` / ${shopsState.total}` : ""}</span>
     </div>
     <div class="shops-list" id="shops-list-items">
-      ${shopCardsWithInlineAdsHtml(shopsState.shops, false, "shops")}
+      ${shopCardsWithInlineAdsHtml(shopsState.shops, false, "shops", { searchMode: Boolean(shopsState.searchQuery.trim()), photoLimit: 0 })}
     </div>
     ${shopsState.hasMore ? `<button class="btn btn-secondary load-more-btn" id="load-more-btn">Kalanları Yükle</button>` : ""}`;
 
@@ -2231,8 +2270,9 @@ function showLocationPicker() {
 // ===================== SHOP DETAIL ========================
 
 function renderShopDetailRatingHtml(shop) {
-  const rating = shopRatingValue(shop);
-  const reviewCount = shopReviewCount(shop);
+  const metrics = shopDetailRatingMetrics(shop);
+  const rating = metrics.rating;
+  const reviewCount = metrics.reviewCount;
   if (rating == null) return "";
   return `<div class="shop-detail-rating">
     ${starsHtml(rating)}
@@ -2268,6 +2308,7 @@ function renderShopDetailBody(shop, comments, votes) {
     name: shop.name || "",
     address: shop.address || "",
   }));
+  const detailPhotoLookupAllowed = shop.placeDetailsLoaded === true;
 
   return `
     <div class="shop-detail">
@@ -2280,7 +2321,7 @@ function renderShopDetailBody(shop, comments, votes) {
           </button>
         </div>
       </div>
-      ${(() => { const url = shopPhotoUrl(shop, 800); return url
+      ${(() => { const url = shopPhotoUrl(shop, 800, { allowPlaceIdLookup: detailPhotoLookupAllowed }); return url
         ? `<div class="shop-detail-photo"><img src="${escHtml(url)}" alt="" loading="lazy" data-photo-fallback="shop-detail-photo-placeholder"></div>`
         : `<div class="shop-detail-photo shop-detail-photo-placeholder"></div>`; })()}
       <div class="shop-detail-body">
@@ -2316,18 +2357,21 @@ function renderShopDetailBody(shop, comments, votes) {
     </div>`;
 }
 
+function bindShopDetailFavorite(shop, modal) {
+  const isFavBtn = modal.querySelector(`.fav-btn-lg[data-fav-id="${shop.id}"]`);
+  if (!isFavBtn) return;
+  isFavBtn.addEventListener("click", () => {
+    store.toggleFavorite(shop.id);
+    isFavBtn.innerHTML = uiIcon("heart");
+    isFavBtn.classList.toggle("fav-active", store.isFavorite(shop.id));
+  });
+}
+
 async function loadShopComments(shop, modal) {
-  const commentsList = modal.querySelector("#comments-list");
+  let commentsList = modal.querySelector("#comments-list");
   if (!commentsList) return;
 
-  const isFavBtn = modal.querySelector(`.fav-btn-lg[data-fav-id="${shop.id}"]`);
-  if (isFavBtn) {
-    isFavBtn.addEventListener("click", () => {
-      store.toggleFavorite(shop.id);
-      isFavBtn.innerHTML = uiIcon("heart");
-      isFavBtn.classList.toggle("fav-active", store.isFavorite(shop.id));
-    });
-  }
+  bindShopDetailFavorite(shop, modal);
 
   try {
     const [comments, votes, details] = await Promise.all([
@@ -2341,6 +2385,10 @@ async function loadShopComments(shop, modal) {
 
     if (details) {
       Object.assign(shop, {
+        placeDetailsLoaded: true,
+        photoReferences: Array.isArray(details.photoReferences) ? details.photoReferences : (details.photo_references || shop.photoReferences || []),
+        exteriorPhotoUrl: details.exteriorPhotoUrl || details.exterior_photo_url || shop.exteriorPhotoUrl || null,
+        photoCount: details.photoCount ?? details.photo_count ?? shop.photoCount ?? 0,
         displayRating: details.displayRating ?? details.display_rating ?? details.appDisplayRating ?? details.app_display_rating ?? shop.displayRating,
         displayReviewCount: details.displayReviewCount ?? details.display_review_count ?? details.appReviewCount ?? details.app_review_count ?? shop.displayReviewCount,
         googleRating: details.googleRating ?? details.google_rating ?? details.rating ?? shop.googleRating,
@@ -2351,6 +2399,14 @@ async function loadShopComments(shop, modal) {
         overallRating: details.overallRating ?? details.overall_rating ?? shop.overallRating ?? null,
         overallReviewCount: details.overallReviewCount ?? details.overall_review_count ?? shop.overallReviewCount ?? 0,
       });
+      store.mergeShops([shop]);
+
+      const modalBody = modal.querySelector(".modal-body");
+      if (modalBody) {
+        modalBody.innerHTML = renderShopDetailBody(shop, [], {});
+        commentsList = modal.querySelector("#comments-list");
+        bindShopDetailFavorite(shop, modal);
+      }
     }
 
     const googleReviews = (details?.googleReviews || details?.google_reviews || shop.googleReviews || shop.google_reviews || [])
@@ -2495,6 +2551,8 @@ function showAddReviewModal(shop) {
     try {
       await api.addComment({
         shopId: shopCommentThreadId(shop),
+        shopName: shop.name || "",
+        shopSnapshot: shopSnapshotPayload(shop),
         text: textValue,
         priceRating,
         satisfactionRating,
